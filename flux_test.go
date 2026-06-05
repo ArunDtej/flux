@@ -3,6 +3,7 @@ package flux
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -562,3 +563,36 @@ func TestCronScheduler(t *testing.T) {
 		t.Errorf("Detected overlapping executions for slow-job: %d", overlapDetections.Load())
 	}
 }
+
+func TestAutoManagedWAL(t *testing.T) {
+	filePath := "test_auto_wal.wal"
+	defer os.Remove(filePath)
+
+	proc := newMockProcessor()
+
+	// Create with auto-WAL option
+	f := New("auto-wal-flux", 10*time.Second, 1, 0, proc, WithWAL[int](filePath, SyncAlways, 0))
+	if f.WAL == nil {
+		t.Fatal("Expected WAL to be initialized automatically")
+	}
+
+	f.Add(1, 100)
+	f.Add(2, 200)
+
+	// Simulate crash by closing the WAL directly (without gracefully flushing the in-memory queue)
+	if closer, ok := f.WAL.(io.Closer); ok {
+		_ = closer.Close()
+	}
+
+	// Since we closed it, we should be able to recover data by reading it
+	f2 := New("auto-wal-flux-recover", 10*time.Second, 1, 0, proc, WithWAL[int](filePath, SyncAlways, 0))
+	// Recover should have run automatically during construction
+	f2.shards[0].mu.Lock()
+	recoveredLen := len(f2.shards[0].data)
+	f2.shards[0].mu.Unlock()
+
+	if recoveredLen != 2 {
+		t.Errorf("Expected 2 recovered keys to be present in shards, got %d", recoveredLen)
+	}
+}
+

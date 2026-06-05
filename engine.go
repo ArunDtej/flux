@@ -2,6 +2,7 @@ package flux
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"time"
 )
@@ -31,6 +32,11 @@ func (f *Flux[V]) Run(ctx context.Context) {
 			f.pulse(ctx, true) // Async
 		case <-ctx.Done():
 			f.pulse(ctx, false) // Sync flush on shutdown
+			if f.walOpts != nil && f.WAL != nil {
+				if closer, ok := f.WAL.(io.Closer); ok {
+					_ = closer.Close()
+				}
+			}
 			return
 		}
 	}

@@ -113,6 +113,8 @@ type Flux[V any] struct {
 	// WAL is an optional Write-Ahead Log interface for persistence.
 	WAL WAL[V]
 
+	walOpts *walOptions
+
 	shards  []*shard[V]
 	count   atomic.Int64
 	trigger chan struct{}
@@ -124,3 +126,13 @@ type Flux[V any] struct {
 	// across multiple pulses.
 	State sync.Map
 }
+
+// Option defines configuration options for Flux.
+type Option[V any] func(*Flux[V])
+
+type walOptions struct {
+	filePath     string
+	syncPolicy   SyncPolicy
+	syncInterval time.Duration
+}
+

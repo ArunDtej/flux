@@ -2,6 +2,7 @@ package flux
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 )
@@ -15,13 +16,13 @@ import (
 //   - shardingCount: Number of internal buckets/mutexes to distribute lock contention. Must be >= 1.
 //   - maxBatchSize: Number of total added items across all shards that triggers an immediate flush. Set to 0 to disable size-based flushing.
 //   - p: The Processor implementation to handle the flushed batches.
-func New[V any](name string, interval time.Duration, shardingCount int, maxBatchSize int, p Processor[V]) *Flux[V] {
-	return NewWithManager(defaultManager, name, interval, shardingCount, maxBatchSize, p)
+func New[V any](name string, interval time.Duration, shardingCount int, maxBatchSize int, p Processor[V], opts ...Option[V]) *Flux[V] {
+	return NewWithManager(defaultManager, name, interval, shardingCount, maxBatchSize, p, opts...)
 }
 
 // NewWithManager creates a new Flux instance with the given configuration and registers it
 // to the specified registry Manager.
-func NewWithManager[V any](m *Manager, name string, interval time.Duration, shardingCount int, maxBatchSize int, p Processor[V]) *Flux[V] {
+func NewWithManager[V any](m *Manager, name string, interval time.Duration, shardingCount int, maxBatchSize int, p Processor[V], opts ...Option[V]) *Flux[V] {
 	if shardingCount <= 0 {
 		shardingCount = 1
 	}
@@ -44,10 +45,37 @@ func NewWithManager[V any](m *Manager, name string, interval time.Duration, shar
 		}
 	}
 
+	for _, opt := range opts {
+		opt(f)
+	}
+
+	if f.walOpts != nil {
+		wal, err := NewBufferedWAL[V](f.walOpts.filePath, f.walOpts.syncPolicy, f.walOpts.syncInterval)
+		if err != nil {
+			panic(fmt.Errorf("flux %q: failed to initialize WAL: %w", name, err))
+		}
+		f.WAL = wal
+		if err := f.Recover(); err != nil {
+			panic(fmt.Errorf("flux %q: failed to recover WAL: %w", name, err))
+		}
+	}
+
 	m.Register(name, f)
 
 	return f
 }
+
+// WithWAL configures the Flux instance to use a BufferedWAL with the specified file path, sync policy, and sync interval.
+func WithWAL[V any](filePath string, policy SyncPolicy, syncInterval time.Duration) Option[V] {
+	return func(f *Flux[V]) {
+		f.walOpts = &walOptions{
+			filePath:     filePath,
+			syncPolicy:   policy,
+			syncInterval: syncInterval,
+		}
+	}
+}
+
 
 // Add appends a value to the buffer for a specific key.
 // If a Write-Ahead Log (WAL) is configured, it writes to the WAL first.
