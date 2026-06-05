@@ -23,39 +23,6 @@ Flux is ideal for write-heavy applications, logging, analytical counters, metric
 
 ---
 
-## Architecture Diagram
-
-Flux leverages a multi-sharded architecture. When events are added, they are routed to a shard based on the hash key. Periodically (or on size triggers), the buffer is swapped and processed:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client
-    participant ShardManager as Flux Shard Manager
-    participant Shards as Mutex-Protected Shards
-    participant WorkerPool as Worker Pool (MaxWorkers)
-    participant Processor as User-Defined Processor
-
-    Client->>ShardManager: Add(key, value)
-    ShardManager->>Shards: Lock and write to Shard (hash % ShardingCount)
-    Note over Shards: Map size increases
-    
-    rect rgb(30, 41, 59)
-        Note over ShardManager: Flush Trigger (Ticker or MaxBatchSize)
-    end
-
-    ShardManager->>WorkerPool: Acquire slot (semaphore)
-    ShardManager->>Shards: Lock shards, atomically swap and reset map pointer (Sync & Fast)
-    Shards-->>ShardManager: Return snapshots
-    ShardManager->>WorkerPool: Spawn Background Worker (Async)
-    Note over WorkerPool: Consolidated batches across all shards
-    WorkerPool->>Processor: ProcessPulse(ctx, consolidatedBatch, state)
-    Processor-->>WorkerPool: Done / Error
-    WorkerPool->>ShardManager: Release slot (semaphore)
-```
-
----
-
 ## Installation
 
 ```bash
