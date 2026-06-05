@@ -124,21 +124,25 @@ func main() {
 ```
 
 ### 2. Write-Ahead Log (WAL) & Durability
-To enforce durability across restarts or crashes, Flux provides a built-in, high-performance `BufferedWAL[V]` implementation of the `WAL[V]` interface, or you can supply your own.
+To enforce durability across restarts or crashes, Flux provides a built-in, high-performance `BufferedWAL[V]` implementation. You can easily opt-in using the `WithWAL` functional option when creating your Flux instance. 
+
+When you configure a WAL using `WithWAL`, Flux handles:
+- **Initialization**: Automatically instantiates the underlying WAL.
+- **Synchronous Recovery**: Reads active logs and populates internal shards on startup, guaranteeing recovery finishes before processing starts.
+- **Lifecycle Cleanup**: Automatically closes/flushes the WAL when the runner context is cancelled.
 
 The `BufferedWAL` supports three sync policies:
 - **`SyncAlways` (Strict Durability with Group Commit):** Synchronizes every write to disk before returning success. Under concurrent load, writers are automatically grouped together, executing a single batch disk write and `fsync()`, offering both safety and extreme concurrency speed.
 - **`SyncPeriodically` (Near-Strict Durability):** Batches writes and flushes/syncs to disk on a background ticker (e.g. every 10ms), keeping write performance near native-RAM speeds.
 - **`SyncOS` (OS-managed Sync):** Writes to the OS page cache immediately, letting the operating system dictate the sync schedule.
 
-To optimize write amplification, `BufferedWAL` utilizes **Tombstone-Based Remove** logic: calls to `Remove()` write a small tombstone entry to the log in $O(1)$ time rather than rewriting the entire file immediately. The file is only rewritten (compacted) once the accumulated deleted items cross a threshold (e.g., 5,000 entries) or when the WAL is closed via `Close()`. This amortizes disk I/O and keeps deletions extremely fast.
+To optimize write amplification, `BufferedWAL` utilizes **Tombstone-Based Remove** logic: calls to `Remove()` write a small tombstone entry to the log in $O(1)$ time rather than rewriting the entire file immediately. The file is only compacted once the accumulated deleted items cross a threshold (e.g., 5,000 entries) or when the WAL is closed.
 
 ```go
 package main
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/ArunDtej/flux"
@@ -147,22 +151,17 @@ import (
 func main() {
 	ctx := context.Background()
 	
-	// Create a new high-performance WAL with Group Commit
-	wal, err := flux.NewBufferedWAL[MyEvent]("events.wal", flux.SyncAlways, 0)
-	if err != nil {
-		log.Fatalf("Failed to initialize WAL: %v", err)
-	}
-	defer wal.Close()
+	// Create a new Flux instance with an auto-managed WAL (SyncAlways/Group Commit)
+	f := flux.New[MyEvent](
+		"durable-flux",
+		5*time.Second,
+		16,
+		1000,
+		processor,
+		flux.WithWAL[MyEvent]("events.wal", flux.SyncAlways, 0),
+	)
 
-	f := flux.New[MyEvent]("durable-flux", 5*time.Second, 16, 1000, processor)
-	f.WAL = wal
-
-	// 1. Recover un-flushed state from WAL on startup
-	if err := f.Recover(); err != nil {
-		log.Fatalf("Failed to recover: %v", err)
-	}
-
-	// 2. Start the engine
+	// Start the engine - recovery happened automatically during New()
 	flux.Bootstrap(ctx)
 }
 ```
