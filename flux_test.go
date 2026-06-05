@@ -595,4 +595,3 @@ func TestAutoManagedWAL(t *testing.T) {
 		t.Errorf("Expected 2 recovered keys to be present in shards, got %d", recoveredLen)
 	}
 }
-

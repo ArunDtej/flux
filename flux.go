@@ -76,7 +76,6 @@ func WithWAL[V any](filePath string, policy SyncPolicy, syncInterval time.Durati
 	}
 }
 
-
 // Add appends a value to the buffer for a specific key.
 // If a Write-Ahead Log (WAL) is configured, it writes to the WAL first.
 // It resolves the target shard based on the hash key (key % shardingCount)

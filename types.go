@@ -135,4 +135,3 @@ type walOptions struct {
 	syncPolicy   SyncPolicy
 	syncInterval time.Duration
 }
-
