@@ -405,7 +405,7 @@ func TestBufferedWAL(t *testing.T) {
 	defer walAlways.Close()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 1000; i++ {
 		wg.Add(1)
 		go func(val int) {
 			defer wg.Done()
@@ -421,11 +421,11 @@ func TestBufferedWAL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recovery failed: %v", err)
 	}
-	if maxID != 50 {
-		t.Errorf("Expected maxID 50, got %d", maxID)
+	if maxID != 1000 {
+		t.Errorf("Expected maxID 1000, got %d", maxID)
 	}
-	if len(recovered) != 50 {
-		t.Errorf("Expected 50 recovered items, got %d", len(recovered))
+	if len(recovered) != 1000 {
+		t.Errorf("Expected 1000 recovered items, got %d", len(recovered))
 	}
 
 	idsToRemove := []uint64{1, 2, 3, 4, 5}
@@ -437,8 +437,8 @@ func TestBufferedWAL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recovery failed after remove: %v", err)
 	}
-	if len(recovered2) != 45 {
-		t.Errorf("Expected 45 recovered items, got %d", len(recovered2))
+	if len(recovered2) != 995 {
+		t.Errorf("Expected 995 recovered items, got %d", len(recovered2))
 	}
 
 	// Close the WAL, triggering compaction.
@@ -457,8 +457,8 @@ func TestBufferedWAL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recovery failed after compaction: %v", err)
 	}
-	if len(recovered3) != 45 {
-		t.Errorf("Expected 45 recovered items after close compaction, got %d", len(recovered3))
+	if len(recovered3) != 995 {
+		t.Errorf("Expected 995 recovered items after close compaction, got %d", len(recovered3))
 	}
 
 	// Test SyncPeriodically
