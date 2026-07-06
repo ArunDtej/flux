@@ -194,6 +194,22 @@ Adjust your concurrency bounds at runtime based on resource consumption or downs
 fluxInstance.SetMaxWorkers(32)
 ```
 
+### 6. Dependency Injection in Processors
+In real-world applications, your processors will typically need access to external resources like databases, loggers, or downstream HTTP clients. You can easily inject these dependencies directly into your processor struct when configuring your Flux instance:
+
+```go
+type UserClickProcessor struct {
+	DB     *sql.DB
+	Logger *slog.Logger
+}
+
+func (p *UserClickProcessor) ProcessPulse(ctx context.Context, batch map[uint64][]ClickEvent, state *sync.Map) error {
+	p.Logger.Info("Flushing clicks to database", "unique_users", len(batch))
+	// Perform bulk insert or batched transaction using p.DB here...
+	return nil
+}
+```
+
 ---
 
 ## Configuration & Tuning
