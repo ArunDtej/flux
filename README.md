@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/ArunDtej/flux)](https://goreportcard.com/report/github.com/ArunDtej/flux)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Flux is a high-performance, concurrent-safe, sharded, buffered event processing library written in Go. It allows you to group incoming high-throughput events or operations by a `uint64` key, buffer them thread-safely with minimal contention, and process them in consolidated batches periodically or when size thresholds are reached.
+Flux is a concurrent-safe, sharded, buffered event processing library written in Go. It allows you to group incoming high-throughput events or operations by a `uint64` key, buffer them thread-safely with minimal contention, and process them in consolidated batches periodically or when size thresholds are reached.
 
 Flux is ideal for write-heavy applications, logging, analytical counters, metrics collection, and batched database operations where you want to trade a tiny delay for significantly reduced database/downstream network load.
 
@@ -124,7 +124,7 @@ func main() {
 ```
 
 ### 2. Write-Ahead Log (WAL) & Durability
-To enforce durability across restarts or crashes, Flux provides a built-in, high-performance `BufferedWAL[V]` implementation. You can easily opt-in using the `WithWAL` functional option when creating your Flux instance. 
+To enforce durability across restarts or crashes, Flux provides a built-in `BufferedWAL[V]` implementation. You can easily opt-in using the `WithWAL` functional option when creating your Flux instance. 
 
 When you configure a WAL using `WithWAL`, Flux handles:
 - **Initialization**: Automatically instantiates the underlying WAL.
@@ -240,6 +240,50 @@ func main() {
 
 	select {}
 }
+```
+
+## Performance & Benchmarks
+
+Flux is designed for low lock contention and efficient concurrent batching. The sharded design distributes lock overhead, and the write-ahead log (WAL) uses group committing to scale disk writes efficiently.
+
+Below are the benchmark results run on a machine with an **Intel(R) Core(TM) Ultra 7 255H (16 vCPUs)** running **Linux**.
+
+### 1. Ingestion Throughput (`flux.Add` Sharding Contention)
+
+This benchmark measures the cost of adding events to the buffer concurrently across multiple goroutines, showing how lock contention decreases as shard counts increase:
+
+| Shard Count | Nanoseconds per Operation | Estimated Throughput |
+|:---|:---|:---|
+| **1 Shard** (No Sharding) | `167.3 ns/op` | ~5.97 Million ops/sec |
+| **8 Shards** | `111.7 ns/op` | ~8.95 Million ops/sec |
+| **32 Shards** | `99.68 ns/op` | ~10.03 Million ops/sec |
+| **64 Shards** | `86.03 ns/op` | ~11.62 Million ops/sec |
+| **128 Shards** | `85.31 ns/op` | **~11.72 Million ops/sec** |
+
+### 2. Write-Ahead Log (WAL) Write Performance
+
+These benchmarks measure the write latency of the `BufferedWAL[V]` across different durability policies under concurrent load:
+
+| Durability Policy | Sync Mechanism | Latency | Estimated Write Rate |
+|:---|:---|:---|:---|
+| **`SyncAlways`** | Strict Durability (Group Commit & `fsync`) | `237,637 ns/op` | ~4,208 writes/sec |
+| **`SyncPeriodically`** | Near-Strict Durability (10ms Background Ticker) | `969.8 ns/op` | **~1.03 Million writes/sec** |
+| **`SyncOS`** | OS Cache-managed Sync | `798.5 ns/op` | **~1.25 Million writes/sec** |
+
+### 3. Tombstone Deletions (`Remove`)
+
+Tombstone deletes mark elements as deleted in $O(1)$ time, postponing compaction until the configured delete threshold is met:
+
+| Operation | Latency | Estimated Deletion Rate |
+|:---|:---|:---|
+| **`Remove` (Tombstone)** | `1,479 ns/op` | ~676,132 deletes/sec |
+
+### Running the Benchmarks
+
+You can run the benchmarks yourself using the following command:
+
+```bash
+go test -bench=. -run=^$ ./...
 ```
 
 ---

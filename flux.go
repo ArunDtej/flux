@@ -140,13 +140,18 @@ func (f *Flux[V]) Recover() error {
 	if f.WAL == nil {
 		return nil
 	}
-	data, _, err := f.WAL.Recover()
+	data, walIDs, _, err := f.WAL.Recover()
 	if err != nil {
 		return err
 	}
 	for k, vals := range data {
-		for _, val := range vals {
-			f.addInMemory(k, val, 0)
+		ids := walIDs[k]
+		for i, val := range vals {
+			var id uint64
+			if i < len(ids) {
+				id = ids[i]
+			}
+			f.addInMemory(k, val, id)
 		}
 	}
 	return nil

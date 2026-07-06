@@ -321,23 +321,25 @@ func (w *BufferedWAL[V]) compactLocked() error {
 }
 
 // Recover reads all active entries in the WAL and resets internal counters.
-func (w *BufferedWAL[V]) Recover() (map[uint64][]V, uint64, error) {
+func (w *BufferedWAL[V]) Recover() (map[uint64][]V, map[uint64][]uint64, uint64, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	if w.file == nil {
-		return nil, 0, errors.New("WAL file is closed")
+		return nil, nil, 0, errors.New("WAL file is closed")
 	}
 
 	entries, err := w.readActiveLocked()
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 
 	var maxID uint64
 	data := make(map[uint64][]V)
+	walIDs := make(map[uint64][]uint64)
 	for _, entry := range entries {
 		data[entry.Key] = append(data[entry.Key], entry.Value)
+		walIDs[entry.Key] = append(walIDs[entry.Key], entry.ID)
 		if entry.ID > maxID {
 			maxID = entry.ID
 		}
@@ -346,7 +348,7 @@ func (w *BufferedWAL[V]) Recover() (map[uint64][]V, uint64, error) {
 	w.nextID.Store(maxID)
 	w.writeCount = len(entries)
 	w.deleteCount = 0
-	return data, maxID, nil
+	return data, walIDs, maxID, nil
 }
 
 func (w *BufferedWAL[V]) readActiveLocked() ([]WALEntry[V], error) {

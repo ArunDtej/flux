@@ -243,15 +243,20 @@ func (fp *functionalProcessor) ProcessPulse(ctx context.Context, batch map[uint6
 	return fp.proc(ctx, batch, state)
 }
 
+type mockWALEntry struct {
+	key uint64
+	val int
+}
+
 type mockWAL struct {
 	mu      sync.Mutex
-	entries map[uint64]int
+	entries map[uint64]mockWALEntry
 	seq     uint64
 }
 
 func newMockWAL() *mockWAL {
 	return &mockWAL{
-		entries: make(map[uint64]int),
+		entries: make(map[uint64]mockWALEntry),
 	}
 }
 
@@ -259,7 +264,7 @@ func (m *mockWAL) Write(key uint64, value int) (uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.seq++
-	m.entries[m.seq] = value
+	m.entries[m.seq] = mockWALEntry{key: key, val: value}
 	return m.seq, nil
 }
 
@@ -272,14 +277,16 @@ func (m *mockWAL) Remove(entryIDs []uint64) error {
 	return nil
 }
 
-func (m *mockWAL) Recover() (map[uint64][]int, uint64, error) {
+func (m *mockWAL) Recover() (map[uint64][]int, map[uint64][]uint64, uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	data := make(map[uint64][]int)
-	for id, val := range m.entries {
-		data[uint64(id)] = append(data[uint64(id)], val)
+	walIDs := make(map[uint64][]uint64)
+	for id, entry := range m.entries {
+		data[entry.key] = append(data[entry.key], entry.val)
+		walIDs[entry.key] = append(walIDs[entry.key], id)
 	}
-	return data, m.seq, nil
+	return data, walIDs, m.seq, nil
 }
 
 func TestManagerScope(t *testing.T) {
@@ -418,7 +425,7 @@ func TestBufferedWAL(t *testing.T) {
 	}
 	wg.Wait()
 
-	recovered, maxID, err := walAlways.Recover()
+	recovered, _, maxID, err := walAlways.Recover()
 	if err != nil {
 		t.Fatalf("Recovery failed: %v", err)
 	}
@@ -434,7 +441,7 @@ func TestBufferedWAL(t *testing.T) {
 		t.Fatalf("Failed to remove ids: %v", err)
 	}
 
-	recovered2, _, err := walAlways.Recover()
+	recovered2, _, _, err := walAlways.Recover()
 	if err != nil {
 		t.Fatalf("Recovery failed after remove: %v", err)
 	}
@@ -454,7 +461,7 @@ func TestBufferedWAL(t *testing.T) {
 	}
 	defer walAlwaysCompacted.Close()
 
-	recovered3, _, err := walAlwaysCompacted.Recover()
+	recovered3, _, _, err := walAlwaysCompacted.Recover()
 	if err != nil {
 		t.Fatalf("Recovery failed after compaction: %v", err)
 	}
@@ -593,5 +600,64 @@ func TestAutoManagedWAL(t *testing.T) {
 
 	if recoveredLen != 2 {
 		t.Errorf("Expected 2 recovered keys to be present in shards, got %d", recoveredLen)
+	}
+}
+
+func TestFluxEndToEndRecovery(t *testing.T) {
+	filePath := "test_e2e_recovery.wal"
+	defer os.Remove(filePath)
+
+	// Step 1: Write items to a first Flux instance with a WAL and close it.
+	wal1, err := NewBufferedWAL[int](filePath, SyncAlways, 0)
+	if err != nil {
+		t.Fatalf("Failed to create WAL 1: %v", err)
+	}
+
+	proc1 := newMockProcessor()
+	f1 := New("flux-1", 10*time.Second, 1, 0, proc1)
+	f1.WAL = wal1
+
+	f1.Add(10, 100)
+	f1.Add(20, 200)
+
+	// Close the WAL to flush it to disk.
+	if err := wal1.Close(); err != nil {
+		t.Fatalf("Failed to close WAL 1: %v", err)
+	}
+
+	// Step 2: Initialize a second Flux instance using the same WAL file, recover it, and pulse it.
+	wal2, err := NewBufferedWAL[int](filePath, SyncAlways, 0)
+	if err != nil {
+		t.Fatalf("Failed to create WAL 2: %v", err)
+	}
+	defer wal2.Close()
+
+	proc2 := newMockProcessor()
+	f2 := New("flux-2", 10*time.Second, 1, 0, proc2)
+	f2.WAL = wal2
+
+	// Recover the state.
+	if err := f2.Recover(); err != nil {
+		t.Fatalf("Failed to recover: %v", err)
+	}
+
+	// Pulse the engine manually.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	f2.pulse(ctx, false) // synchronous pulse
+
+	// Verify that the processor executed and received the data.
+	if proc2.receivedCount.Load() != 2 {
+		t.Errorf("Expected 2 recovered items to be processed, got %d", proc2.receivedCount.Load())
+	}
+
+	// Step 3: Verify the WAL is clean. If we recover again, it should return no items.
+	recovered, _, _, err := wal2.Recover()
+	if err != nil {
+		t.Fatalf("Second recovery failed: %v", err)
+	}
+	if len(recovered) != 0 {
+		t.Errorf("Expected WAL to have 0 recovered active items after processing, but got %d", len(recovered))
 	}
 }

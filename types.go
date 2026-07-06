@@ -39,7 +39,7 @@ type WAL[V any] interface {
 	Remove(entryIDs []uint64) error
 
 	// Recover retrieves all saved log entries and the highest entryID found.
-	Recover() (data map[uint64][]V, maxEntryID uint64, err error)
+	Recover() (data map[uint64][]V, walIDs map[uint64][]uint64, maxEntryID uint64, err error)
 }
 
 // workerSemaphore is a thread-safe semaphore that allows dynamic limit adjustments.
