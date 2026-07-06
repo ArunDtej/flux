@@ -246,7 +246,7 @@ func main() {
 
 Flux is designed for low lock contention and efficient concurrent batching. The sharded design distributes lock overhead, and the write-ahead log (WAL) uses group committing to scale disk writes efficiently.
 
-Below are the benchmark results run on a machine with an **Intel(R) Core(TM) Ultra 7 255H (16 vCPUs)** running **Linux**.
+Below are the benchmark results run on a machine with an **Intel(R) Core(TM) Ultra 7 255H (16 vCPUs)** running **Ubuntu 24.04 (WSL 2)**.
 
 ### 1. Ingestion Throughput (`flux.Add` Sharding Contention)
 
