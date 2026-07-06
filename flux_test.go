@@ -178,9 +178,22 @@ func TestFluxStatePersistence(t *testing.T) {
 func TestFluxBackpressureSaturate(t *testing.T) {
 	pulseBlock := make(chan struct{})
 	processedCount := atomic.Int32{}
+	activeWorkers := atomic.Int32{}
+	maxActiveWorkers := atomic.Int32{}
 
 	slowProc := func(ctx context.Context, batch map[uint64][]int, state *sync.Map) error {
+		active := activeWorkers.Add(1)
+		for {
+			currentMax := maxActiveWorkers.Load()
+			if active <= currentMax {
+				break
+			}
+			if maxActiveWorkers.CompareAndSwap(currentMax, active) {
+				break
+			}
+		}
 		<-pulseBlock // block indefinitely
+		activeWorkers.Add(-1)
 		processedCount.Add(1)
 		return nil
 	}
@@ -206,12 +219,10 @@ func TestFluxBackpressureSaturate(t *testing.T) {
 	close(pulseBlock)
 	time.Sleep(50 * time.Millisecond)
 
-	// We expect at most 2 pulses processed because the semaphore limit (MaxWorkers=2)
+	// We expect at most 2 active workers concurrently because the semaphore limit (MaxWorkers=2)
 	// blocks/delays processing for subsequent pulses when workers are saturated.
-	// (Note: the 3rd and 4th additions will combine or delay, so they aren't lost,
-	// but active goroutines were limited to 2).
-	if count := processedCount.Load(); count > 2 {
-		t.Logf("Processed pulses: %d", count)
+	if maxActive := maxActiveWorkers.Load(); maxActive > 2 {
+		t.Errorf("Expected at most 2 concurrent active workers due to MaxWorkers=2, but observed %d", maxActive)
 	}
 }
 

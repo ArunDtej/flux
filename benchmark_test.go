@@ -146,11 +146,11 @@ func TestFluxExtremeStress(t *testing.T) {
 	}
 
 	const (
-		numGoroutines = 200
+		numGoroutines    = 200
 		eventsPerRoutine = 50000 // 10 Million total events
-		numShards     = 128
-		maxBatchSize  = 100000
-		interval      = 100 * time.Millisecond
+		numShards        = 128
+		maxBatchSize     = 100000
+		interval         = 100 * time.Millisecond
 	)
 
 	processor := newMockProcessor()
@@ -172,7 +172,7 @@ func TestFluxExtremeStress(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < eventsPerRoutine; j++ {
 				// Distribute keys heavily to test sharding
-				key := uint64((routineID * eventsPerRoutine + j) % 10000)
+				key := uint64((routineID*eventsPerRoutine + j) % 10000)
 				f.Add(key, 1)
 			}
 		}(i)
